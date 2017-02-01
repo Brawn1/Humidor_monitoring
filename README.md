@@ -1,2 +1,2 @@
 # Humidor_monitoring
-Ueberwachung der Luftfeuchte und Temperatur im Humidor mit einem ATtiny85. Und übertragung der Messdaten über einen 433MHz Sender.
+Ueberwachung der Luftfeuchte und Temperatur im Humidor mit einem ATtiny85, und Übertragung der Messdaten mit einem 433MHz Sender.
