@@ -19,9 +19,12 @@
  * PB3 = 433MHz Sender
  * PB4 = DHT11 Sensor
  * 
- * shiftRegister Belegung:
+ * shiftRegister SN74HC165N Belegung:
  * out1 = schieber / oeffner
  * out2 = Luefter
+ * in planung:
+ * out3 = 2 Wire LCD Pin 1
+ * out4 = 2 Wire LCD Pin 2
  * 
  * Info:
  * Falls ein anderer Arduino Controller verwendet wird, muss man die Pins anpassen.
@@ -57,6 +60,13 @@
  * SONSTIGE ANSPRÜCHE HAFTBAR ZU MACHEN, OB INFOLGE DER ERFÜLLUNG EINES VERTRAGES, 
  * EINES DELIKTES ODER ANDERS IM ZUSAMMENHANG MIT DER SOFTWARE ODER SONSTIGER VERWENDUNG DER SOFTWARE ENTSTANDEN.
  * 
+ * 
+ * https://www.arduino.cc/en/Tutorial/ShiftOut
+ * 
+ * Im Bereich von 65-75% relativer Luftfeuchtigkeit können Zigarren bedenkenlos langfristig gelagert werden. 
+ * Vorsicht ist allerdings geboten, wenn die relative Luftfeuchtigkeit 80% übersteigt. 
+ * In diesen Fällen kann die Zigarre anfangen zu faulen, es können sich Schimmelpilze und andere Pilzarten bilden.
+ * 
  */
 #include<stdlib.h>
 //VirtualWire lib
@@ -77,9 +87,9 @@ int txPin = 3; //ueber Pin 3 die Daten senden
 int dhtPin = PB4; //DHT11 Pin
 */
 //arduino shiftregister
-#define latchPin A1
-#define clockPin A0
-#define dataPin A2
+#define latchPin 9 //PL
+#define clockPin 10 //
+#define dataPin 8
 // shiftregister
 byte reg = 0;
 
@@ -96,13 +106,13 @@ DHT_Unified dht(dhtPin, DHTTYPE);
 
 //Pausen zwischen den Messungen in Millisekunden
 unsigned long stime = 10000;
-unsigned long mtime = 5000;
+unsigned long mtime = 10000;
 
 // boolean felder
 boolean fan1 = false;
 
 void setup() {
-  //Serial.begin(115200);
+  Serial.begin(115200);
   // Initialise the IO and ISR
   vw_set_ptt_inverted(true); // Required for RF Link module
   vw_setup(1200); // Bits per sec
@@ -111,9 +121,12 @@ void setup() {
   pinMode(latchPin, OUTPUT);
   pinMode(clockPin, OUTPUT);
   pinMode(dataPin, OUTPUT);
+  updateShiftRegister(0);
+  delay(20);
   //init DHT device
   dht.begin();
   sensor_t sensor;
+  Serial.println(F("setup ende"));
 }
 
 unsigned long task1, task2 = 0;
@@ -122,33 +135,37 @@ void loop() {
   
   // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende eine Nachricht.
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
-    send_msg("Testnachricht_1");
-    compute_msg(temp_sensor_id(), get_temp(), hum_sensor_id(), get_hum());
+    Serial.println(F("check DHT22"));
+    //send_msg("Testnachricht_1");
+    compute_msg(get_temp(), get_hum());
     task1 = millis();
   }
 
   // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
   if ((unsigned long)(currmillis - task2) >= mtime) {
-    if ((float)(get_hum() <= 70.0)) {
+    Serial.println(F("check if hum"));
+    if ((float)(get_hum() <= 65.0 || get_hum() <= 75.0)) {
       // switch ventilator on
+      Serial.println(F("switch Ventilator on"));
       if (!fan1) {
         //oeffne Luefter schlitz
         int i = 1;
-        bitSet(reg, i);
-        updateShiftRegister();
-        delay(10);
+        //bitSet(reg, i);
+        updateShiftRegister(i);
+        delay(60);
         //switch fan1 on
-        i = i + 1;
+        i = 14;
         bitSet(reg, i);
-        updateShiftRegister();
+        updateShiftRegister(i);
         delay(60);
         fan1 = true;
       }
     } else {
       if (fan1) {
+        Serial.println(F("Switch Ventilator off"));
         // switch fan1 off und schliesse den Schlitz
         reg = 0;
-        updateShiftRegister();
+        updateShiftRegister(0);
         delay(60);
         fan1 = false;
       }
@@ -158,28 +175,21 @@ void loop() {
   
 }
 
-void updateShiftRegister() {
+void updateShiftRegister(int i) {
+  Serial.print(F("REG = "));
+  Serial.println(i);
+  Serial.println(F("use shiftregister"));
    digitalWrite(latchPin, LOW);
-   shiftOut(dataPin, clockPin, LSBFIRST, reg);
+   shiftOut(dataPin, clockPin, MSBFIRST, i);
    digitalWrite(latchPin, HIGH);
-}
-
-char temp_sensor_id() {
-  sensor_t sensor;
-  dht.temperature().getSensor(&sensor);
-  return sensor.sensor_id;
-}
-
-char hum_sensor_id() {
-  sensor_t sensor;
-  dht.humidity().getSensor(&sensor);
-  return sensor.sensor_id;
 }
 
 float get_temp() {
   // Read temperature as Celsius (the default)
   sensors_event_t event;  
   dht.temperature().getEvent(&event);
+  Serial.print(F("Temperature in C = "));
+  Serial.println(event.temperature);
   return event.temperature;
 }
 
@@ -187,27 +197,31 @@ float get_hum() {
   // Read humidity
   sensors_event_t event;  
   dht.humidity().getEvent(&event);
+  Serial.print(F("Humidity in % = "));
+  Serial.println(event.relative_humidity);
   return event.relative_humidity;
 }
 
-void compute_msg(char temp_uuid, float temp, char hum_uuid, float hum){
+void compute_msg(float temp, float hum){
   /*
    * compute message for sending data
    * dtostrf(FLOAT,WIDTH,PRECSISION,BUFFER);
    */
-   char str;
-   str += temp_uuid;
-   str += dtostrf(temp,5,2,7);
-   str += hum_uuid;
-   str += dtostrf(hum,5,2,7);
-   //Serial.println(str);
-   send_msg(str);
+   Serial.println(temp);
+   Serial.println(hum);
+   char str1, str2;
+   str1 = dtostrf(temp,5,2,7);
+   str2 = dtostrf(hum,5,2,7);
+   Serial.println(str1);
+   send_msg(str1);
 }
 
 void send_msg(char message) {
   /*
    * Sending data over 433MHz Sender
    */
+  Serial.print(F("Sending Message = "));
+  Serial.println(message);
   const char *msg = message; // this is your message to send
   vw_send((uint8_t *)msg, strlen(msg));
   vw_wait_tx(); // Wait for message to finish
