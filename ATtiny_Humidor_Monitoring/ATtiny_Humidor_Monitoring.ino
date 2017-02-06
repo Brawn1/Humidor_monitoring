@@ -1,34 +1,32 @@
 /*
-   Humidor Überwachung mit einem ATtiny85 und einem 433MHz Sender.
-
-   Der ATtiny85 wird die Sensorendaten von der Luftfeuchte und Temperatur Auswerten, und falls es einen Grenzwert
-   überschreitet einen Lüfter für die Luftfeuchte einschalten.
-
-   Somit erzeugt es die richtige Feuchtigkeit im Humidor.
-
-   Da der ATtiny85 nur begrenzte Pins hat, wird noch ein Shiftregister und ein Transistor in die Schaltung eingebaut.
-
-
-   ATtiny85:
-   ---------
-   VCC = 5V
-   GND = GND
-   PB0 = Shift Register Clock
-   PB1 = Shift Register Serial Data
-   PB2 = Shift Register Latchpin
-   PB3 = 433MHz Sender
-   PB4 = DHT11 Sensor
-
-   shiftRegister SN74HC165N Belegung:
-   out1 = schieber / oeffner
-   out2 = Luefter
-   in planung:
-   out3 = 2 Wire LCD Pin 1
-   out4 = 2 Wire LCD Pin 2
-
-   Info:
-   Falls ein anderer Arduino Controller verwendet wird, muss man die Pins anpassen.
-
+ * Humidor Überwachung mit einem ATtiny85 und einem 433MHz Sender.
+ * 
+ * Der ATtiny85 wird die Sensorendaten von der Luftfeuchte und Temperatur Auswerten, und falls es einen Grenzwert
+ * unterschreitet, einen Lüfter für die Luftfeuchte einschalten.
+ * 
+ * Somit erzeugt es die richtige Feuchtigkeit im Humidor.
+ * 
+ * Da der ATtiny85 nur begrenzte Pins hat, wird noch ein Shiftregister und ein Transistor in die Schaltung eingebaut.
+ * 
+ * ATtiny85:
+ * ---------
+ * VCC = 5V
+ * GND = GND
+ * PB0 = Shift Register Serial Data
+ * PB1 = Shift Register Clock
+ * PB2 = Shift Register Latchpin
+ * PB3 = 433MHz Sender
+ * PB4 = DHT11 Sensor
+ * 
+ * shiftRegister SN74HC165N Belegung:
+ * ----------------------------------
+ * out1 = schieber / oeffner
+ * out2 = Luefter
+ * out3 = LED (Aktiv)
+ * 
+ * Info:
+ * Falls ein anderer Arduino Controller verwendet wird, muss man die Pins anpassen.
+ * 
    MIT License:
    Copyright (c) 2017 Günter Bailey
 
@@ -60,45 +58,36 @@
    SONSTIGE ANSPRÜCHE HAFTBAR ZU MACHEN, OB INFOLGE DER ERFÜLLUNG EINES VERTRAGES,
    EINES DELIKTES ODER ANDERS IM ZUSAMMENHANG MIT DER SOFTWARE ODER SONSTIGER VERWENDUNG DER SOFTWARE ENTSTANDEN.
 
-
-   https://www.arduino.cc/en/Tutorial/ShiftOut
-
    Im Bereich von 65-75% relativer Luftfeuchtigkeit können Zigarren bedenkenlos langfristig gelagert werden.
    Vorsicht ist allerdings geboten, wenn die relative Luftfeuchtigkeit 80% übersteigt.
    In diesen Fällen kann die Zigarre anfangen zu faulen, es können sich Schimmelpilze und andere Pilzarten bilden.
 
 */
+// ID fuer den Sender
+byte ID = 10;
 //VirtualWire lib
 #include <VirtualWire.h>
+/* //mit dieser Option gibt es einen Fehler beim Kompilieren
 #undef int
 #undef abs
 #undef double
 #undef float
 #undef round
-
-const int txPin = 3; //ueber Pin 3 die Daten senden
-//const int rxPin_unused = 99;
-//const int pttPin_unused = 98;
-
-
-//attiny85 shiftregister
-/*
-  #define latchPin PB2
-  #define clockPin PB0
-  #define dataPin PB1
-  int dhtPin = PB4; //DHT11 Pin
 */
-//arduino shiftregister
-#define latchPin 9 //PL
-#define clockPin 10 //
-#define dataPin 8
-// shiftregister
-byte reg = 0;
+int txPin = 3; //ueber Pin 3 die Daten senden
+
+int out1 = 1;
+
+/*
+// Reservierung fuer Display
+int sclPin = 2;
+int scaPin = 0;
+*/
 
 //DHT11 und 22 lib
 #include <DHT.h>
 #include <DHT_U.h>
-#define dhtPin 5 //DHT Pin
+#define dhtPin 4 //DHT Pin
 // Uncomment the type of sensor in use:
 //#define DHTTYPE DHT11 // DHT 11
 #define DHTTYPE DHT22 // DHT 22 (AM2302)
@@ -109,35 +98,51 @@ DHT_Unified dht(dhtPin, DHTTYPE);
 unsigned long stime = 10000;
 unsigned long mtime = 10000;
 
-// boolean felder
-boolean fan1 = false;
+boolean fanOn;
 
 void setup() {
   //Serial.begin(115200);
-  // Initialise the IO and ISR
+  // VirtualWire Initialise the IO and ISR
   vw_set_ptt_inverted(false); // Required for RF Link module
-  vw_set_tx_pin(txPin); // pin 3 is used as the transmit data out into the TX Link module, change this as per your needs
-  //vw_set_ptt_pin(pttPin_unused);
-  //vw_set_rx_pin(rxPin_unused);
+  vw_set_tx_pin(txPin);
   vw_setup(1200); //Bits pro Sekunde
-
-  //shiftregister
-  pinMode(latchPin, OUTPUT);
-  pinMode(clockPin, OUTPUT);
-  pinMode(dataPin, OUTPUT);
-  updateShiftRegister(0);
-  delay(20);
+  
+  pinMode(out1, OUTPUT);
+  digitalWrite(out1, LOW);
+  fanOn = false;
+  
   //init DHT device
   dht.begin();
   sensor_t sensor;
-  //Serial.println(F("setup ende"));
 }
 
-unsigned long task1, task2 = 0;
+unsigned long task, task1, task2 = 0;
 void loop() {
   unsigned long currmillis = millis();
 
-  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende eine Nachricht.
+  //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
+  if (fanOn) {
+    if ((unsigned long)(currmillis - task2) >= 5000) {
+      byte i;
+      //Serial.println(F("check if hum"));
+      if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+        if (!fanOn) {
+          //oeffne die Belueftung und starte den Luefter
+          digitalWrite(out1, HIGH);
+          fanOn = true;
+        }
+      } else {
+        if (fanOn) {
+          // switch fan1 off und schliesse den Schlitz
+          digitalWrite(out1, LOW);
+          fanOn = false;
+        }
+      }
+      task2 = millis();
+    }
+  }
+
+  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
     //Serial.println(F("check DHT22"));
     TransmitData(get_temp(), get_hum());
@@ -146,55 +151,31 @@ void loop() {
 
   // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
   if ((unsigned long)(currmillis - task2) >= mtime) {
+    byte i;
     //Serial.println(F("check if hum"));
-    if ((float)(get_hum() <= 65.0 || get_hum() <= 75.0)) {
-      // switch ventilator on
-      //Serial.println(F("switch Ventilator on"));
-      if (!fan1) {
-        //oeffne Luefter schlitz
-        int i = 1;
-        //bitSet(reg, i);
-        updateShiftRegister(i);
-        delay(15);
-        //switch fan1 on
-        i = 14;
-        bitSet(reg, i);
-        updateShiftRegister(i);
-        delay(20);
-        fan1 = true;
+    if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+      if (!fanOn) {
+        //oeffne die Belueftung und starte den Luefter
+        //Serial.println(F("Switch fan on"));
+        digitalWrite(out1, HIGH);
+        fanOn = true;
       }
     } else {
-      if (fan1) {
-        //Serial.println(F("Switch Ventilator off"));
+      if (fanOn) {
         // switch fan1 off und schliesse den Schlitz
-        reg = 0;
-        updateShiftRegister(0);
-        delay(60);
-        fan1 = false;
+        //Serial.println(F("Switch fan off"));
+        digitalWrite(out1, LOW);
+        fanOn = false;
       }
     }
     task2 = millis();
   }
-
-}
-
-void updateShiftRegister(int i) {
-  /*
-  Serial.print(F("REG = "));
-  Serial.println(i);
-  Serial.println(F("use shiftregister"));
-  */
-  digitalWrite(latchPin, LOW);
-  shiftOut(dataPin, clockPin, MSBFIRST, i);
-  digitalWrite(latchPin, HIGH);
 }
 
 float get_temp() {
   // Read temperature as Celsius (the default)
   sensors_event_t event;
   dht.temperature().getEvent(&event);
-  //Serial.print(F("Temperature in C = "));
-  //Serial.println(event.temperature);
   return event.temperature;
 }
 
@@ -202,8 +183,6 @@ float get_hum() {
   // Read humidity
   sensors_event_t event;
   dht.humidity().getEvent(&event);
-  //Serial.print(F("Humidity in % = "));
-  //Serial.println(event.relative_humidity);
   return event.relative_humidity;
 }
 
@@ -214,28 +193,24 @@ void TransmitData(float temp, float hum) {
    * Pruefsumme an den Empfaenger
    * 
   */
+
   struct wData_STRUCT {
     byte identity;
     float s1;
     float s2;
     int checksum;
   };
-  //Serial.println((temp * 100));
-  //Serial.println((hum * 100));
 
   //Defines structure wData as a variable (retaining structure);
   wData_STRUCT wData;
 
   //Fill in the data.
-  wData.identity = 90;
+  wData.identity = ID;
   wData.s1 = (temp * 100);
   wData.s2 = (hum * 100);
   wData.checksum = ((temp * 100) + (hum * 100)); //erstelle eine Pruefsumme mit den 2 Werten
 
-  //Sende die Daten zur Sicherheit 3x
-  //Serial.println(F("sending data"));
   vw_send((uint8_t *)&wData, sizeof(wData));
   vw_wait_tx();
-  delay(20);
 }
 
