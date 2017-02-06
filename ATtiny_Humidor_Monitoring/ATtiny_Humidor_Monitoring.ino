@@ -96,8 +96,9 @@ int dhtPin = 4;
 DHT_Unified dht(dhtPin, DHTTYPE);
 
 //Pausen zwischen den Messungen in Millisekunden
-unsigned long stime = 10000; // Zeit fuer Daten Senden
-unsigned long mtime = 10000; // Zeit fuer die Daten Messung
+//unsigned long stime = 10000; // Zeit fuer Daten Senden
+//unsigned long mtime = 10000; // Zeit fuer die Daten Messung
+int wtime = 5000;
 
 boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
 
@@ -119,60 +120,68 @@ void setup() {
 
 }
 
-unsigned long task, task1, task2 = 0;
+//unsigned long task, task1, task2 = 0;
 void loop() {
-  unsigned long currmillis = millis();
-
+  //unsigned long currmillis = millis();
+/*
   //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
   if (fanOn) {
+    /*
     if ((unsigned long)(currmillis - task2) >= 5000) {
       byte i;
       //Serial.println(F("check if hum"));
-      if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
-        if (!fanOn) {
-          //oeffne die Belueftung und starte den Luefter
-          digitalWrite(out1, HIGH);
-          fanOn = true;
-        }
-      } else {
-        if (fanOn) {
-          // switch fan1 off und schliesse den Schlitz
-          digitalWrite(out1, LOW);
-          fanOn = false;
-        }
-      }
-      task2 = millis();
-    }
-  }
-
-  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
-  if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
-    //Serial.println(F("check DHT22"));
-    TransmitData(get_temp(), get_hum());
-    task1 = millis();
-  }
-
-  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
-  if ((unsigned long)(currmillis - task2) >= mtime) {
-    byte i;
-    //Serial.println(F("check if hum"));
+      */
+/*
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
       if (!fanOn) {
         //oeffne die Belueftung und starte den Luefter
-        //Serial.println(F("Switch fan on"));
         digitalWrite(out1, HIGH);
         fanOn = true;
       }
     } else {
       if (fanOn) {
         // switch fan1 off und schliesse den Schlitz
-        //Serial.println(F("Switch fan off"));
         digitalWrite(out1, LOW);
         fanOn = false;
       }
     }
-    task2 = millis();
+      //task2 = millis();
+    //}
   }
+*/
+
+  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
+  //if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
+    //Serial.println(F("check DHT22"));
+  delay(wtime);
+  TransmitData(get_temp(), get_hum());
+    //task1 = millis();
+  //}
+
+  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
+  /*
+  if ((unsigned long)(currmillis - task2) >= mtime) {
+    byte i;
+    //Serial.println(F("check if hum"));
+  */
+  delay(wtime);
+  if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+    if (!fanOn) {
+      //oeffne die Belueftung und starte den Luefter
+      //Serial.println(F("Switch fan on"));
+      digitalWrite(out1, HIGH);
+      fanOn = true;
+    }
+  } else {
+    if (fanOn) {
+      // switch fan1 off und schliesse den Schlitz
+      //Serial.println(F("Switch fan off"));
+      digitalWrite(out1, LOW);
+      fanOn = false;
+    }
+  }
+    //task2 = millis();
+  //}
 }
 
 float get_temp() {
