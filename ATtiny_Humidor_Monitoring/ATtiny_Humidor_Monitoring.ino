@@ -84,6 +84,7 @@ int sclPin = 2;
 int scaPin = 0;
 */
 
+int dhtPin = 4;
 //DHT11 und 22 lib
 #include <DHT.h>
 #include <DHT_U.h>
@@ -95,14 +96,15 @@ int scaPin = 0;
 DHT_Unified dht(dhtPin, DHTTYPE);
 
 //Pausen zwischen den Messungen in Millisekunden
-unsigned long stime = 10000;
-unsigned long mtime = 10000;
+unsigned long stime = 10000; // Zeit fuer Daten Senden
+unsigned long mtime = 10000; // Zeit fuer die Daten Messung
 
-boolean fanOn;
+boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
 
 void setup() {
   //Serial.begin(115200);
   // VirtualWire Initialise the IO and ISR
+  
   vw_set_ptt_inverted(false); // Required for RF Link module
   vw_set_tx_pin(txPin);
   vw_setup(1200); //Bits pro Sekunde
@@ -113,7 +115,8 @@ void setup() {
   
   //init DHT device
   dht.begin();
-  sensor_t sensor;
+  //sensor_t sensor;
+
 }
 
 unsigned long task, task1, task2 = 0;
@@ -174,16 +177,22 @@ void loop() {
 
 float get_temp() {
   // Read temperature as Celsius (the default)
+  
   sensors_event_t event;
   dht.temperature().getEvent(&event);
   return event.temperature;
+  
+  //return dht.readTemperature();
 }
 
 float get_hum() {
   // Read humidity
+  
   sensors_event_t event;
   dht.humidity().getEvent(&event);
   return event.relative_humidity;
+  
+  //return dht.readHumidity();
 }
 
 void TransmitData(float temp, float hum) {
@@ -212,5 +221,6 @@ void TransmitData(float temp, float hum) {
 
   vw_send((uint8_t *)&wData, sizeof(wData));
   vw_wait_tx();
+
 }
 
