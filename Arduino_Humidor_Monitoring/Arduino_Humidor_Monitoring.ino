@@ -1,0 +1,212 @@
+/*
+ * Humidor Überwachung mit einem Arduino Nano v3 und einem ESP8266 WIFI Modul.
+ * 
+ * Der Arduino Nano wertet die Sensorendaten von Luftfeuchtigkeit und Temperatur aus, und falls es einen Grenzwert
+ * unterschreitet, öffnet es die Befeuchtungskammer und schaltet einen Lüfter ein. 
+ *  
+ * Somit erzeugt es die richtige Luftfeuchtigkeit im Humidor.
+ * 
+ * Als zusatz wird noch ein OLED Display am Humidor eingebaut um den derzeitigen Status anzuzeigen.
+ * 
+ * Arduino Nano V3 Pinbelegung:
+ * ----------------------------
+ * VCC = 5V
+ * GND = GND
+ * D2  = TX Pin ESP8266 WIFI
+ * D3  = RX Pin ESP8266 WIFI
+ * 3.3V= VCC ESP8266 WIFI
+ * ---
+ * D4  = DHT11 Sensor
+ * ---
+ * A4  = I2C OLED Display (SDA)
+ * A5  = I2C OLED Display (SCL)
+ * ---
+ * D5  = (PWM) Servo Motor
+ * D7  = 5V Lüfter (Optional)
+ * ---
+ * D8  = LED (Activity)
+ * D12 = LED (Power)
+ * ---
+ * 
+ * OLED Display SSD1306:
+ * ---------------------
+ * VCC = 3.3V
+ * GND = Ground
+ * SCL = SCL (I2C)
+ * SDA = SDA (I2C)
+ * 
+ * Servo Motor:
+ * ------------
+ * VCC (Red) = 5V
+ * GND (Black = Ground
+ * Control (Yellow) = D5 (PWM)
+ * 
+ * 
+   MIT License:
+   Copyright (c) 2017 Günter Bailey
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+   documentation files (the "Software"), to deal in the Software without restriction,
+   including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+   and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+   subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+   ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+   MIT Lizenz in Deutsch:
+   Copyright (c) 2017 Günter Bailey
+
+   Hiermit wird unentgeltlich jeder Person, die eine Kopie der Software und der zugehörigen Dokumentationen (die "Software") erhält,
+   die Erlaubnis erteilt, sie uneingeschränkt zu nutzen, inklusive und ohne Ausnahme mit dem Recht, sie zu verwenden,
+   zu kopieren, zu verändern, zusammenzufügen, zu veröffentlichen, zu verbreiten, zu unterlizenzieren und/oder zu verkaufen,
+   und Personen, denen diese Software überlassen wird, diese Rechte zu verschaffen, unter den folgenden Bedingungen:
+
+   Der obige Urheberrechtsvermerk und dieser Erlaubnisvermerk sind in allen Kopien oder Teilkopien der Software beizulegen.
+   DIE SOFTWARE WIRD OHNE JEDE AUSDRÜCKLICHE ODER IMPLIZIERTE GARANTIE BEREITGESTELLT,
+   EINSCHLIESSLICH DER GARANTIE ZUR BENUTZUNG FÜR DEN VORGESEHENEN ODER EINEM BESTIMMTEN ZWECK SOWIE JEGLICHER RECHTSVERLETZUNG,
+   JEDOCH NICHT DARAUF BESCHRÄNKT. IN KEINEM FALL SIND DIE AUTOREN ODER COPYRIGHTINHABER FÜR JEGLICHEN SCHADEN ODER
+   SONSTIGE ANSPRÜCHE HAFTBAR ZU MACHEN, OB INFOLGE DER ERFÜLLUNG EINES VERTRAGES,
+   EINES DELIKTES ODER ANDERS IM ZUSAMMENHANG MIT DER SOFTWARE ODER SONSTIGER VERWENDUNG DER SOFTWARE ENTSTANDEN.
+
+   Im Bereich von 65-75% relativer Luftfeuchtigkeit können Zigarren bedenkenlos langfristig gelagert werden.
+   Vorsicht ist allerdings geboten, wenn die relative Luftfeuchtigkeit 80% übersteigt.
+   In diesen Fällen kann die Zigarre anfangen zu faulen, es können sich Schimmelpilze und andere Pilzarten bilden.
+
+*/
+// ID fuer den Sender
+byte ID = 10;
+//VirtualWire lib
+#include <VirtualWire.h>
+int txPin = 3; //ueber Pin 3 die Daten senden
+//digital Output
+int out1 = 12;
+
+//DHT lib
+int dhtPin = 4;
+#include "DHT.h"
+DHT dht;
+
+//Pausen zwischen den Messungen in Millisekunden
+unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
+unsigned long mtime = 900000; // Zeit zwischen den Messungen
+
+boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
+
+void setup() {
+  //Serial.begin(115200);
+  // VirtualWire Initialise the IO and ISR
+  
+  vw_set_ptt_inverted(false); // Required for RF Link module
+  vw_set_tx_pin(txPin);
+  vw_setup(1200); //Bits pro Sekunde
+  
+  pinMode(out1, OUTPUT);
+  digitalWrite(out1, LOW);
+  fanOn = false;
+  
+  dht.setup(dhtPin);
+  //Serial.println(F("setup end"));
+
+}
+
+unsigned long task1, task2 = 0;
+void loop() {
+  unsigned long currmillis = millis();
+
+  //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
+  if (fanOn) {
+    if ((unsigned long)(currmillis - task2) >= 15000) {
+      byte i;
+      //Serial.println(F("check if hum"));
+      if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+        if (!fanOn) {
+          //oeffne die Belueftung und starte den Luefter
+          //Serial.println(F("fan ON"));
+          digitalWrite(out1, HIGH);
+          fanOn = true;
+        }
+      } else {
+        if (fanOn) {
+          // switch fan1 off und schliesse den Schlitz
+          //Serial.println(F("fan off"));
+          digitalWrite(out1, LOW);
+          fanOn = false;
+        }
+      }
+      task2 = millis();
+    }
+  }
+
+  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
+  if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
+    //Serial.println(F("check DHT22"));
+    TransmitData(get_temp(), get_hum());
+    task1 = millis();
+  }
+
+  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
+  if ((unsigned long)(currmillis - task2) >= mtime) {
+    byte i;
+    //Serial.println(F("check if hum"));
+    if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+      if (!fanOn) {
+        //oeffne die Belueftung und starte den Luefter
+        //Serial.println(F("Switch fan on"));
+        digitalWrite(out1, HIGH);
+        fanOn = true;
+      }
+    } else {
+      if (fanOn) {
+        // switch fan1 off und schliesse den Schlitz
+        //Serial.println(F("Switch fan off"));
+        digitalWrite(out1, LOW);
+        fanOn = false;
+      }
+    }
+    task2 = millis();
+  }
+}
+
+float get_temp() {
+  // Read temperature as Celsius (the default)
+  return dht.getTemperature();
+}
+
+float get_hum() {
+  // Read humidity
+  return dht.getHumidity();
+}
+
+void TransmitData(float temp, float hum) {
+  /*
+   * Erstelle eine Datenstruktur und
+   * sende es danach mit einer simplen 
+   * Pruefsumme an den Empfaenger
+   * 
+  */
+
+  struct wData_STRUCT {
+    byte identity;
+    float s1;
+    float s2;
+    int checksum;
+  };
+
+  //Defines structure wData as a variable (retaining structure);
+  wData_STRUCT wData;
+
+  //Fill in the data.
+  wData.identity = ID;
+  wData.s1 = (temp * 100);
+  wData.s2 = (hum * 100);
+  wData.checksum = ((temp * 100) + (hum * 100)); //erstelle eine Pruefsumme mit den 2 Werten
+
+  vw_send((uint8_t *)&wData, sizeof(wData));
+  vw_wait_tx();
+}
+
