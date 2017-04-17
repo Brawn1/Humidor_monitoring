@@ -71,19 +71,19 @@ int txPin = 3; //ueber Pin 3 die Daten senden
 //digital Output
 int out1 = 12;
 
-//DHT lib
+//DHT Lib
 int dhtPin = 4;
 #include "DHT.h"
 DHT dht;
 
 //Pausen zwischen den Messungen in Millisekunden
-unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
-unsigned long mtime = 900000; // Zeit zwischen den Messungen
+unsigned long stime = 1800000L; // Zeit zwischen den Sendezeiten
+unsigned long mtime = 900000L; // Zeit zwischen den Messungen
 
 boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
 
 void setup() {
-  //Serial.begin(115200);
+  Serial.begin(115200);
   // VirtualWire Initialise the IO and ISR
   
   vw_set_ptt_inverted(false); // Required for RF Link module
@@ -95,30 +95,29 @@ void setup() {
   fanOn = false;
   
   dht.setup(dhtPin);
-  //Serial.println(F("setup end"));
-
+  Serial.println(F("setup end"));
 }
 
 unsigned long task1, task2 = 0;
 void loop() {
   unsigned long currmillis = millis();
 
-  //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
+  //falls der Luefter laeuft pruefe alle 15 Sekunden die Werte
   if (fanOn) {
     if ((unsigned long)(currmillis - task2) >= 15000) {
       byte i;
-      //Serial.println(F("check if hum"));
+      Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
         if (!fanOn) {
           //oeffne die Belueftung und starte den Luefter
-          //Serial.println(F("fan ON"));
+          Serial.println(F("fan ON"));
           digitalWrite(out1, HIGH);
           fanOn = true;
         }
       } else {
         if (fanOn) {
           // switch fan1 off und schliesse den Schlitz
-          //Serial.println(F("fan off"));
+          Serial.println(F("fan off"));
           digitalWrite(out1, LOW);
           fanOn = false;
         }
@@ -129,7 +128,7 @@ void loop() {
 
   // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
-    //Serial.println(F("check DHT22"));
+    Serial.println(F("check DHT22"));
     TransmitData(get_temp(), get_hum());
     task1 = millis();
   }
@@ -137,18 +136,18 @@ void loop() {
   // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
   if ((unsigned long)(currmillis - task2) >= mtime) {
     byte i;
-    //Serial.println(F("check if hum"));
+    Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
       if (!fanOn) {
         //oeffne die Belueftung und starte den Luefter
-        //Serial.println(F("Switch fan on"));
+        Serial.println(F("Switch fan on"));
         digitalWrite(out1, HIGH);
         fanOn = true;
       }
     } else {
       if (fanOn) {
         // switch fan1 off und schliesse den Schlitz
-        //Serial.println(F("Switch fan off"));
+        Serial.println(F("Switch fan off"));
         digitalWrite(out1, LOW);
         fanOn = false;
       }
@@ -172,7 +171,6 @@ void TransmitData(float temp, float hum) {
    * Erstelle eine Datenstruktur und
    * sende es danach mit einer simplen 
    * Pruefsumme an den Empfaenger
-   * 
   */
 
   struct wData_STRUCT {
