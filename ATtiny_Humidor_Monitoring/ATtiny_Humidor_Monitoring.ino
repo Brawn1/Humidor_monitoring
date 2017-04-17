@@ -67,43 +67,23 @@
 byte ID = 10;
 //VirtualWire lib
 #include <VirtualWire.h>
-/* //mit dieser Option gibt es einen Fehler beim Kompilieren
-#undef int
-#undef abs
-#undef double
-#undef float
-#undef round
-*/
 int txPin = 3; //ueber Pin 3 die Daten senden
+//digital Output
+int out1 = 12;
 
-int out1 = 1;
-
-/*
-// Reservierung fuer Display
-int sclPin = 2;
-int scaPin = 0;
-*/
-
+//DHT Lib
 int dhtPin = 4;
-//DHT11 und 22 lib
-#include <DHT.h>
-#include <DHT_U.h>
-#define dhtPin 4 //DHT Pin
-// Uncomment the type of sensor in use:
-//#define DHTTYPE DHT11 // DHT 11
-#define DHTTYPE DHT22 // DHT 22 (AM2302)
-//#define DHTTYPE DHT21 // DHT 21 (AM2301)
-DHT_Unified dht(dhtPin, DHTTYPE);
+#include "DHT.h"
+DHT dht;
 
 //Pausen zwischen den Messungen in Millisekunden
-//unsigned long stime = 10000; // Zeit fuer Daten Senden
-//unsigned long mtime = 10000; // Zeit fuer die Daten Messung
-int wtime = 5000;
+unsigned long stime = 1800000L; // Zeit zwischen den Sendezeiten
+unsigned long mtime = 900000L; // Zeit zwischen den Messungen
 
 boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
 
 void setup() {
-  //Serial.begin(115200);
+  Serial.begin(115200);
   // VirtualWire Initialise the IO and ISR
   
   vw_set_ptt_inverted(false); // Required for RF Link module
@@ -114,33 +94,60 @@ void setup() {
   digitalWrite(out1, LOW);
   fanOn = false;
   
-  //init DHT device
-  dht.begin();
-  //sensor_t sensor;
-
+  dht.setup(dhtPin);
+  Serial.println(F("setup end"));
 }
 
-//unsigned long task, task1, task2 = 0;
+unsigned long task1, task2 = 0;
 void loop() {
-  //unsigned long currmillis = millis();
-/*
-  //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
+  unsigned long currmillis = millis();
+
+  //falls der Luefter laeuft pruefe alle 15 Sekunden die Werte
   if (fanOn) {
-    /*
-    if ((unsigned long)(currmillis - task2) >= 5000) {
+    if ((unsigned long)(currmillis - task2) >= 15000) {
       byte i;
-      //Serial.println(F("check if hum"));
-      */
-/*
+      Serial.println(F("check if hum"));
+      if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+        if (!fanOn) {
+          //oeffne die Belueftung und starte den Luefter
+          Serial.println(F("fan ON"));
+          digitalWrite(out1, HIGH);
+          fanOn = true;
+        }
+      } else {
+        if (fanOn) {
+          // switch fan1 off und schliesse den Schlitz
+          Serial.println(F("fan off"));
+          digitalWrite(out1, LOW);
+          fanOn = false;
+        }
+      }
+      task2 = millis();
+    }
+  }
+
+  // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
+  if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
+    Serial.println(F("check DHT22"));
+    TransmitData(get_temp(), get_hum());
+    task1 = millis();
+  }
+
+  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
+  if ((unsigned long)(currmillis - task2) >= mtime) {
+    byte i;
+    Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
       if (!fanOn) {
         //oeffne die Belueftung und starte den Luefter
+        Serial.println(F("Switch fan on"));
         digitalWrite(out1, HIGH);
         fanOn = true;
       }
     } else {
       if (fanOn) {
         // switch fan1 off und schliesse den Schlitz
+        Serial.println(F("Switch fan off"));
         digitalWrite(out1, LOW);
         fanOn = false;
       }
@@ -186,22 +193,12 @@ void loop() {
 
 float get_temp() {
   // Read temperature as Celsius (the default)
-  
-  sensors_event_t event;
-  dht.temperature().getEvent(&event);
-  return event.temperature;
-  
-  //return dht.readTemperature();
+  return dht.getTemperature();
 }
 
 float get_hum() {
   // Read humidity
-  
-  sensors_event_t event;
-  dht.humidity().getEvent(&event);
-  return event.relative_humidity;
-  
-  //return dht.readHumidity();
+  return dht.getHumidity();
 }
 
 void TransmitData(float temp, float hum) {
@@ -209,7 +206,6 @@ void TransmitData(float temp, float hum) {
    * Erstelle eine Datenstruktur und
    * sende es danach mit einer simplen 
    * Pruefsumme an den Empfaenger
-   * 
   */
 
   struct wData_STRUCT {
@@ -230,6 +226,5 @@ void TransmitData(float temp, float hum) {
 
   vw_send((uint8_t *)&wData, sizeof(wData));
   vw_wait_tx();
-
 }
 
