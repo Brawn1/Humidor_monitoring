@@ -7,6 +7,7 @@
  * Somit erzeugt es die richtige Luftfeuchtigkeit im Humidor.
  * 
  * Als zusatz wird noch ein OLED Display am Humidor eingebaut um den derzeitigen Status anzuzeigen.
+ * Genauso verwenden wir die Bibliothek ArduinoJson und bauen für die Übertragung ein Json String.
  * 
  * Arduino Nano V3 Pinbelegung:
  * ----------------------------
@@ -78,13 +79,35 @@
    In diesen Fällen kann die Zigarre anfangen zu faulen, es können sich Schimmelpilze und andere Pilzarten bilden.
 
 */
+#include <ArduinoJson.h>
 // ID fuer den Sender
-byte ID = 10;
+byte ID = 234576;
 //VirtualWire lib
-#include <VirtualWire.h>
-int txPin = 3; //ueber Pin 3 die Daten senden
-//digital Output
-int out1 = 12;
+//#include <VirtualWire.h>
+//int txPin = 3; //ueber Pin 3 die Daten senden
+
+
+int out1 = 12; //obsolet
+
+int fan_pin=7;
+int led_act=8;
+int led_pwr=12;
+
+
+// ESP8266 WIFI
+#include<SoftwareSerial.h>
+SoftwareSerial wifi(2,3); //RX, TX
+boolean NO_IP=false;
+String IP="";
+int i=0,k=0;
+int x=0;
+
+//Servo Lib
+#include <Servo.h> 
+// Declare the Servo pin 
+int servo_pin = 5;
+// Create a servo object 
+Servo servo1;
 
 //DHT lib
 int dhtPin = 4;
@@ -95,19 +118,134 @@ DHT dht;
 unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
 unsigned long mtime = 900000; // Zeit zwischen den Messungen
 
-boolean fanOn; // Boolean Feld fuer den Status vom Luefter.
+boolean isopen; // Boolean Feld fuer den Status vom Luefter.
+
+// Memory pool for JSON object tree.
+StaticJsonBuffer<200> jsonBuffer;
+JsonObject& root = jsonBuffer.createObject();
+
+void servo_ctrl(char cmd){
+  if(cmd=='open'){
+    if(!isopen){
+      // servo go to 90 degrees (open)
+      servo1.write(90);
+      isopen=true;
+      delay(1000);
+    } else {
+      // do nothing
+    }
+  } else {
+    if(isopen){
+      // servo go to 0 degrees (close)
+      servo1.write(0);
+      isopen=false;
+      delay(1000);
+    } else {
+      // do nothing
+    }
+  }
+}
+
+void connect_wifi(String cmd, int t){
+  int temp=0,i=0;
+  while(1)
+  {
+    Serial.println(cmd);
+    wifi.println(cmd);
+    while(wifi.available()) {
+      if(wifi.find("OK"))
+      i=8;
+    }
+    delay(t);
+    if(i>5)
+    break;
+    i++;
+  }
+  if(i==8)
+  Serial.println("OK");
+  else
+  Serial.println("Error");
+}
+
+void check_ip(int t1){
+  int t2=millis();
+  while(t2+t1>millis()){
+      while(wifi.available()>0){
+        if(wifi.find("WIFI GOT IP")){
+          NO_IP=true;
+        }
+      }
+  }
+}
+
+void get_ip(){
+  IP="";
+  char ch=0;
+  while(1){
+    wifi.println("AT+CIFSR");
+    while(wifi.available()>0){
+      if(wifi.find("STAIP,")){
+        delay(1000);
+        Serial.println("IP Address;");
+        while(wifi.available()>0){
+          ch=wifi.read();
+          if(ch=='+')
+          break;
+          IP+=ch;
+        }
+      }
+      if(ch=='+')
+      break;
+    }
+    if(ch=='+')
+    break;
+    delay(1000);
+  }
+  Serial.print(IP);
+  Serial.print("Port:");
+  Serial.println(80);
+}
+
+void wifi_init(){
+  connect_wifi("AT",100);
+  connect_wifi("AT+CWMODE=3",100);
+  connect_wifi("AT+CWQAP",100);
+  connect_wifi("AT+RST",5000);
+  check_ip(5000);
+  if(!NO_IP){
+    Serial.println("Connecting Wifi...");
+    connect_wifi("AT+CWJAP=\"tlapse\",\"timelapse\"",7000); //username,password,waittime
+  } else {
+  }
+  Serial.println("Wifi Connect");
+  get_ip();
+  connect_wifi("AT+CIPMUX=1",100);
+  connect_wifi("AT+CIPSERVER=1,80",100);
+}
+
 
 void setup() {
-  //Serial.begin(115200);
+  Serial.begin(115200);
+  wifi.begin(9600);
+  wifi_init();
+
+  root["ID"] = ID;
+  root["stime"] = stime;
+  root["mtime"] = mtime;
+
+  /*
   // VirtualWire Initialise the IO and ISR
-  
   vw_set_ptt_inverted(false); // Required for RF Link module
   vw_set_tx_pin(txPin);
   vw_setup(1200); //Bits pro Sekunde
+  */
+
+  // We need to attach the servo to the used pin number 
+  servo1.attach(servo_pin);
   
-  pinMode(out1, OUTPUT);
-  digitalWrite(out1, LOW);
-  fanOn = false;
+  
+  pinMode(servo_pin, OUTPUT);
+  digitalWrite(servo_pin, LOW);
   
   dht.setup(dhtPin);
   //Serial.println(F("setup end"));
@@ -119,23 +257,21 @@ void loop() {
   unsigned long currmillis = millis();
 
   //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
-  if (fanOn) {
+  if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 15000) {
       byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
-        if (!fanOn) {
+        if (!isopen) {
           //oeffne die Belueftung und starte den Luefter
           //Serial.println(F("fan ON"));
-          digitalWrite(out1, HIGH);
-          fanOn = true;
+          servo_ctrl("open");
         }
       } else {
-        if (fanOn) {
+        if (isopen) {
           // switch fan1 off und schliesse den Schlitz
           //Serial.println(F("fan off"));
-          digitalWrite(out1, LOW);
-          fanOn = false;
+          servo_ctrl("close");
         }
       }
       task2 = millis();
@@ -145,7 +281,10 @@ void loop() {
   // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
     //Serial.println(F("check DHT22"));
-    TransmitData(get_temp(), get_hum());
+    //TransmitData(get_temp(), get_hum());
+    root["temperature"] = get_temp();
+    root["Humidity"] = get_hum();
+    
     task1 = millis();
   }
 
@@ -154,18 +293,16 @@ void loop() {
     byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
-      if (!fanOn) {
+      if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
         //Serial.println(F("Switch fan on"));
-        digitalWrite(out1, HIGH);
-        fanOn = true;
+        servo_ctrl("open");
       }
     } else {
-      if (fanOn) {
+      if (isopen) {
         // switch fan1 off und schliesse den Schlitz
         //Serial.println(F("Switch fan off"));
-        digitalWrite(out1, LOW);
-        fanOn = false;
+        servo_ctrl("close");
       }
     }
     task2 = millis();
@@ -182,6 +319,33 @@ float get_hum() {
   return dht.getHumidity();
 }
 
+void TransmitData(String jsonstring){
+  /*
+   * Send JSON Data
+   */
+   int ii=0;
+   while(1){
+    unsigned int l=jsonstring.length();
+    Serial.print("AT+CIPSEND=0,");
+    wifi.print("AT+CIPSEND=0,");
+    Serial.println(l+2);
+    wifi.println(l+2);
+    delay(100);
+    Serial.println(jsonstring);
+    wifi.println(jsonstring);
+    while(wifi.available()){
+      if(wifi.find("OK")){
+        ii=11;
+        break;
+      }
+    }
+    if(ii==11)
+    break;
+    delay(100);
+   }
+}
+
+/*
 void TransmitData(float temp, float hum) {
   /*
    * Erstelle eine Datenstruktur und
@@ -189,7 +353,7 @@ void TransmitData(float temp, float hum) {
    * Pruefsumme an den Empfaenger
    * 
   */
-
+/*
   struct wData_STRUCT {
     byte identity;
     float s1;
@@ -209,4 +373,4 @@ void TransmitData(float temp, float hum) {
   vw_send((uint8_t *)&wData, sizeof(wData));
   vw_wait_tx();
 }
-
+*/
