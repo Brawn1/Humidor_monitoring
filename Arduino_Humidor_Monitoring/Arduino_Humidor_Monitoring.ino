@@ -81,26 +81,23 @@
 */
 #include <ArduinoJson.h>
 // ID fuer den Sender
-byte ID = 234576;
-//VirtualWire lib
-//#include <VirtualWire.h>
-//int txPin = 3; //ueber Pin 3 die Daten senden
-
-
-int out1 = 12; //obsolet
+unsigned long int ID = 234576987654321;
 
 int fan_pin=7;
-int led_act=8;
-int led_pwr=12;
-
+//int led_act=8;
+//int led_pwr=12;
 
 // ESP8266 WIFI
 #include<SoftwareSerial.h>
 SoftwareSerial wifi(2,3); //RX, TX
 boolean NO_IP=false;
 String IP="";
-int i=0,k=0;
-int x=0;
+int i,k,x=0;
+
+String SERVER="10.20.50.74";
+String TOKEN="5245ADFAFD5784567ADFA324";
+//unsigned int PORT=9600;
+String URI="/";
 
 //Servo Lib
 #include <Servo.h> 
@@ -115,14 +112,35 @@ int dhtPin = 4;
 DHT dht;
 
 //Pausen zwischen den Messungen in Millisekunden
-unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
-unsigned long mtime = 900000; // Zeit zwischen den Messungen
+//unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
+//unsigned long mtime = 900000; // Zeit zwischen den Messungen
+unsigned long stime = 20000; // Zeit zwischen den Sendezeiten
+unsigned long mtime = 5000; // Zeit zwischen den Messungen
 
 boolean isopen; // Boolean Feld fuer den Status vom Luefter.
 
 // Memory pool for JSON object tree.
-StaticJsonBuffer<200> jsonBuffer;
+StaticJsonBuffer<100> jsonBuffer;
 JsonObject& root = jsonBuffer.createObject();
+
+/*
+// OLED Display
+#include <SPI.h>
+#include <Wire.h>
+//#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define OLED_RESET 4
+Adafruit_SSD1306 display(OLED_RESET);
+
+#define NUMFLAKES 10
+#define XPOS 0
+#define YPOS 1
+#define DELTAY 2
+
+#define LOGO16_GLCD_HEIGHT 16 
+#define LOGO16_GLCD_WIDTH  16 
+*/
 
 void servo_ctrl(char cmd){
   if(cmd=='open'){
@@ -162,9 +180,9 @@ void connect_wifi(String cmd, int t){
     i++;
   }
   if(i==8)
-  Serial.println("OK");
+  Serial.println(F("OK"));
   else
-  Serial.println("Error");
+  Serial.println(F("Error"));
 }
 
 void check_ip(int t1){
@@ -186,7 +204,7 @@ void get_ip(){
     while(wifi.available()>0){
       if(wifi.find("STAIP,")){
         delay(1000);
-        Serial.println("IP Address;");
+        Serial.println(F("IP Address;"));
         while(wifi.available()>0){
           ch=wifi.read();
           if(ch=='+')
@@ -202,61 +220,51 @@ void get_ip(){
     delay(1000);
   }
   Serial.print(IP);
-  Serial.print("Port:");
+  Serial.print(F("Port:"));
   Serial.println(80);
 }
 
 void wifi_init(){
-  connect_wifi("AT",100);
-  connect_wifi("AT+CWMODE=3",100);
-  connect_wifi("AT+CWQAP",100);
-  connect_wifi("AT+RST",5000);
+  connect_wifi(F("AT"),100);
+  connect_wifi(F("AT+CWMODE=1"),100);
+  connect_wifi(F("AT+CWQAP"),100);
+  connect_wifi(F("AT+RST"),5000);
   check_ip(5000);
   if(!NO_IP){
-    Serial.println("Connecting Wifi...");
-    connect_wifi("AT+CWJAP=\"tlapse\",\"timelapse\"",7000); //username,password,waittime
+    Serial.println(F("Connecting Wifi..."));
+    connect_wifi("AT+CWJAP=\"tlapse\",\"Timelapse-2016\"",7000); //username,password,waittime
   } else {
   }
-  Serial.println("Wifi Connect");
-  get_ip();
-  connect_wifi("AT+CIPMUX=1",100);
-  connect_wifi("AT+CIPSERVER=1,80",100);
+  Serial.println(F("Wifi Connect"));
+  //get_ip();
+  connect_wifi(F("AT+CIPMUX=0"),100);
+  //connect_wifi(F("AT+CIPSERVER=1,80"),100);
 }
 
 
 void setup() {
   Serial.begin(115200);
-  wifi.begin(9600);
+  wifi.begin(115200);
   wifi_init();
 
   root["ID"] = ID;
-  root["stime"] = stime;
-  root["mtime"] = mtime;
-
-  /*
-  // VirtualWire Initialise the IO and ISR
-  vw_set_ptt_inverted(false); // Required for RF Link module
-  vw_set_tx_pin(txPin);
-  vw_setup(1200); //Bits pro Sekunde
-  */
+  root["sendtime"] = stime;
+  root["measuretime"] = mtime;
 
   // We need to attach the servo to the used pin number 
   servo1.attach(servo_pin);
-  
   
   pinMode(servo_pin, OUTPUT);
   digitalWrite(servo_pin, LOW);
   
   dht.setup(dhtPin);
-  //Serial.println(F("setup end"));
-
 }
 
-unsigned long task1, task2 = 0;
+unsigned long task1, task2, task3 = 0;
 void loop() {
   unsigned long currmillis = millis();
 
-  //falls der Luefter laeuft pruefe alle 5 Sekunden die Werte
+  //falls der Luefter laeuft pruefe alle 15 Sekunden die Werte
   if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 15000) {
       byte i;
@@ -284,8 +292,19 @@ void loop() {
     //TransmitData(get_temp(), get_hum());
     root["temperature"] = get_temp();
     root["Humidity"] = get_hum();
-    
+    TransmitData();
     task1 = millis();
+  }
+
+  // Sende Messdaten wenn die Oeffnungen offen sind alle 30 Sekunden
+  if(isopen){
+    if((unsigned long)(currmillis - task3) >= 30000){
+      //TransmitData(get_temp(), get_hum());
+      root["temperature"] = get_temp();
+      root["Humidity"] = get_hum();
+      TransmitData();
+      task3 = millis();
+    }
   }
 
   // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
@@ -319,58 +338,49 @@ float get_hum() {
   return dht.getHumidity();
 }
 
-void TransmitData(String jsonstring){
+void TransmitData(){
   /*
-   * Send JSON Data
-   */
-   int ii=0;
-   while(1){
-    unsigned int l=jsonstring.length();
-    Serial.print("AT+CIPSEND=0,");
-    wifi.print("AT+CIPSEND=0,");
-    Serial.println(l+2);
-    wifi.println(l+2);
-    delay(100);
-    Serial.println(jsonstring);
-    wifi.println(jsonstring);
-    while(wifi.available()){
-      if(wifi.find("OK")){
-        ii=11;
-        break;
-      }
-    }
-    if(ii==11)
-    break;
-    delay(100);
-   }
-}
-
-/*
-void TransmitData(float temp, float hum) {
-  /*
-   * Erstelle eine Datenstruktur und
-   * sende es danach mit einer simplen 
-   * Pruefsumme an den Empfaenger
-   * 
+  * Send JSON Data
   */
-/*
-  struct wData_STRUCT {
-    byte identity;
-    float s1;
-    float s2;
-    int checksum;
-  };
+  String jsonstring;
+  root.printTo(jsonstring);
 
-  //Defines structure wData as a variable (retaining structure);
-  wData_STRUCT wData;
+  wifi.print("AT+CIPSTART=\"TCP\",");
+  wifi.print("\"10.20.50.74\"");
+  wifi.print(",");
+  wifi.println(9600);
+  if(wifi.find("OK")){
+    Serial.println(F("TCP connection ready"));
+  }
+  delay(1000);
 
-  //Fill in the data.
-  wData.identity = ID;
-  wData.s1 = (temp * 100);
-  wData.s2 = (hum * 100);
-  wData.checksum = ((temp * 100) + (hum * 100)); //erstelle eine Pruefsumme mit den 2 Werten
+  String postRequest = "POST "+URI+" HTTP/1.0\r\n"+
+  "HOST:"+SERVER+"\r\n"+
+  "Accept: *"+"/"+"*\r\n"+
+  "Content-Length:"+jsonstring.length()+"\r\n"+
+  "Content-Type: application/json\r\n"+
+  "Authorization: Token "+TOKEN+"\r\n"+
+  "\r\n"+jsonstring;
 
-  vw_send((uint8_t *)&wData, sizeof(wData));
-  vw_wait_tx();
+  Serial.print(F("AT+CIPSEND="));
+  Serial.println(postRequest.length() );
+  wifi.print(F("AT+CIPSEND="));
+  wifi.println(postRequest.length() );
+
+  delay(500);
+
+  if(wifi.find(">")){
+    Serial.println(F("Sending..."));
+    wifi.print(postRequest);
+    if(wifi.find("SEND OK")){
+      Serial.println(F("Packet sent"));
+      while(wifi.available()){
+        String tmpResponse = wifi.readString();
+        Serial.println(tmpResponse);
+      }
+      wifi.println(F("AT+CIPCLOSE"));
+        
+    }
+  }
 }
-*/
+
