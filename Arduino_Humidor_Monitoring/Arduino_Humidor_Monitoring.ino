@@ -91,6 +91,7 @@ int fan_pin=7;
 #include<SoftwareSerial.h>
 SoftwareSerial wifi(2,3); //RX, TX
 boolean NO_IP=false;
+boolean WIFI_CONN=false;
 String IP="";
 int i,k,x=0;
 
@@ -105,6 +106,7 @@ String URI="/";
 int servo_pin = 5;
 // Create a servo object 
 Servo servo1;
+int pos = 0;
 
 //DHT lib
 int dhtPin = 4;
@@ -115,7 +117,7 @@ DHT dht;
 //unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
 //unsigned long mtime = 900000; // Zeit zwischen den Messungen
 unsigned long stime = 20000; // Zeit zwischen den Sendezeiten
-unsigned long mtime = 5000; // Zeit zwischen den Messungen
+unsigned long mtime = 10000; // Zeit zwischen den Messungen
 
 boolean isopen; // Boolean Feld fuer den Status vom Luefter.
 
@@ -142,12 +144,13 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define LOGO16_GLCD_WIDTH  16 
 */
 
-void servo_ctrl(char cmd){
-  if(cmd=='open'){
+void servo_ctrl(char cmd[5]){
+  if(cmd=="open"){
     if(!isopen){
       // servo go to 90 degrees (open)
-      servo1.write(90);
+      servo1.write(130);
       isopen=true;
+      Serial.println(F("Servo Control write 130"));
       delay(1000);
     } else {
       // do nothing
@@ -155,12 +158,20 @@ void servo_ctrl(char cmd){
   } else {
     if(isopen){
       // servo go to 0 degrees (close)
-      servo1.write(0);
+      servo1.write(15);
       isopen=false;
+      Serial.println(F("Servo Control write 15"));
       delay(1000);
     } else {
       // do nothing
     }
+  }
+  // close by setup
+  if(cmd=="start"){
+    servo1.write(15);
+    isopen=false;
+    Serial.println(F("Servo Control write 15"));
+    delay(1000);
   }
 }
 
@@ -191,6 +202,7 @@ void check_ip(int t1){
       while(wifi.available()>0){
         if(wifi.find("WIFI GOT IP")){
           NO_IP=true;
+          WIFI_CONN=true;
         }
       }
   }
@@ -219,25 +231,33 @@ void get_ip(){
     break;
     delay(1000);
   }
-  Serial.print(IP);
-  Serial.print(F("Port:"));
-  Serial.println(80);
+  if(IP==""){
+    // test 
+  } else {
+    WIFI_CONN=true;
+    NO_IP=true;
+    Serial.print(IP);
+    Serial.print(F("Port:"));
+    Serial.println(80);
+  }
 }
 
 void wifi_init(){
   connect_wifi(F("AT"),100);
   connect_wifi(F("AT+CWMODE=1"),100);
   connect_wifi(F("AT+CWQAP"),100);
-  connect_wifi(F("AT+RST"),5000);
+  connect_wifi(F("AT+RST"),10000);
   check_ip(5000);
   if(!NO_IP){
     Serial.println(F("Connecting Wifi..."));
     connect_wifi("AT+CWJAP=\"tlapse\",\"Timelapse-2016\"",7000); //username,password,waittime
   } else {
+    // do nothing
   }
   Serial.println(F("Wifi Connect"));
   //get_ip();
   connect_wifi(F("AT+CIPMUX=0"),100);
+  check_ip(5000);
   //connect_wifi(F("AT+CIPSERVER=1,80"),100);
 }
 
@@ -245,40 +265,40 @@ void wifi_init(){
 void setup() {
   Serial.begin(115200);
   wifi.begin(115200);
-  wifi_init();
-
+  //wifi_init();
+  
   root["ID"] = ID;
   root["sendtime"] = stime;
   root["measuretime"] = mtime;
 
   // We need to attach the servo to the used pin number 
   servo1.attach(servo_pin);
-  
-  pinMode(servo_pin, OUTPUT);
-  digitalWrite(servo_pin, LOW);
+  // close servo
+  servo_ctrl("start");
   
   dht.setup(dhtPin);
+  Serial.println(F("Setup End"));
 }
 
 unsigned long task1, task2, task3 = 0;
 void loop() {
   unsigned long currmillis = millis();
 
-  //falls der Luefter laeuft pruefe alle 15 Sekunden die Werte
+  //falls die Befeuchtung aktiv ist pruefe alle 30 Sekunden die Werte
   if (isopen) {
-    if ((unsigned long)(currmillis - task2) >= 15000) {
+    if ((unsigned long)(currmillis - task2) >= 30000) {
       byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
         if (!isopen) {
           //oeffne die Belueftung und starte den Luefter
-          //Serial.println(F("fan ON"));
+          Serial.println(F("Open Slot"));
           servo_ctrl("open");
         }
       } else {
         if (isopen) {
           // switch fan1 off und schliesse den Schlitz
-          //Serial.println(F("fan off"));
+          Serial.println(F("Close Slot"));
           servo_ctrl("close");
         }
       }
@@ -296,31 +316,31 @@ void loop() {
     task1 = millis();
   }
 
-  // Sende Messdaten wenn die Oeffnungen offen sind alle 30 Sekunden
+  // Sende Messdaten wenn die Befeuchtung aktiv ist alle 60 Sekunden
   if(isopen){
-    if((unsigned long)(currmillis - task3) >= 30000){
+    if((unsigned long)(currmillis - task3) >= 60000){
       //TransmitData(get_temp(), get_hum());
-      root["temperature"] = get_temp();
-      root["Humidity"] = get_hum();
+      root["temperature"]=get_temp();
+      root["Humidity"]=get_hum();
       TransmitData();
       task3 = millis();
     }
   }
 
-  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte Luefter ein.
+  // checke die Luftfeuchtigkeit und wenn zu niedrig schalte die Befeuchtung ein.
   if ((unsigned long)(currmillis - task2) >= mtime) {
     byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
       if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
-        //Serial.println(F("Switch fan on"));
+        Serial.println(F("Switch fan on"));
         servo_ctrl("open");
       }
     } else {
       if (isopen) {
         // switch fan1 off und schliesse den Schlitz
-        //Serial.println(F("Switch fan off"));
+        Serial.println(F("Switch fan off"));
         servo_ctrl("close");
       }
     }
@@ -328,20 +348,53 @@ void loop() {
   }
 }
 
+// Read temperature as Celsius (the default)
 float get_temp() {
-  // Read temperature as Celsius (the default)
   return dht.getTemperature();
 }
 
+// Read humidity
 float get_hum() {
-  // Read humidity
   return dht.getHumidity();
 }
 
+// check if wifi is connected and set WIFI_CONN and NO_IP to True
+void chk_wifi_conn(){
+  if(!WIFI_CONN){
+    // get ip address
+    get_ip();
+    delay(2000);
+    // check ip and NO_IP to True
+    check_ip(5000);
+  } else {
+    // do nothing
+  }
+
+  if(!NO_IP && !WIFI_CONN){
+    wifi_init();
+  } else {
+    NO_IP=true;
+    WIFI_CONN=true;
+  }
+}
+
+// Transmit Data over Wifi
 void TransmitData(){
   /*
   * Send JSON Data
   */
+  if(isopen){
+    root["open"]="True";
+  } else {
+    root["open"]="False";
+  }
+
+  if(!WIFI_CONN){
+    chk_wifi_conn();
+  } else {
+    // do nothing
+  }
+
   String jsonstring;
   root.printTo(jsonstring);
 
@@ -367,7 +420,7 @@ void TransmitData(){
   wifi.print(F("AT+CIPSEND="));
   wifi.println(postRequest.length() );
 
-  delay(500);
+  delay(1000);
 
   if(wifi.find(">")){
     Serial.println(F("Sending..."));
@@ -379,8 +432,9 @@ void TransmitData(){
         Serial.println(tmpResponse);
       }
       wifi.println(F("AT+CIPCLOSE"));
-        
     }
+  } else {
+    wifi.println(F("AT+CIPCLOSE"));
   }
 }
 
