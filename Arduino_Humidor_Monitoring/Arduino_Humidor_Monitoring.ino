@@ -80,10 +80,10 @@
 
 */
 #include <ArduinoJson.h>
-// ID fuer den Sender
+// Sender ID for Database
 unsigned long int ID = 234576987654321;
 
-int fan_pin=7;
+//int fan_pin=7;
 //int led_act=8;
 //int led_pwr=12;
 
@@ -95,34 +95,34 @@ boolean WIFI_CONN=false;
 String IP="";
 int i,k,x=0;
 
-String SERVER="10.20.50.74";
-String TOKEN="5245ADFAFD5784567ADFA324";
-//unsigned int PORT=9600;
-String URI="/";
+String SERVER="10.20.50.74"; // DNS or IP to send measurement data to Server
+String TOKEN="5245ADFAFD5784567ADFA324"; // AUTH Token
+//unsigned int PORT=9600; // Port for Server
+String URI="/"; // URL Path after DNS or IP
 
 //Servo Lib
 #include <Servo.h> 
-// Declare the Servo pin 
-int servo_pin = 5;
-// Create a servo object 
-Servo servo1;
-int pos = 0;
+int servo_pin = 5; // Declare the Servo pin
+Servo servo1; // Create a servo object
+int pos_open = 130; // open position in degrees
+int pos_close = 15; // close position in degrees
 
-//DHT lib
+//DHT11 Lib
 int dhtPin = 4;
 #include "DHT.h"
 DHT dht;
 
-//Pausen zwischen den Messungen in Millisekunden
-//unsigned long stime = 1800000; // Zeit zwischen den Sendezeiten
-//unsigned long mtime = 900000; // Zeit zwischen den Messungen
-unsigned long stime = 20000; // Zeit zwischen den Sendezeiten
-unsigned long mtime = 10000; // Zeit zwischen den Messungen
+// delay between the measurements in Milliseconds
+unsigned long stime = 1800000; // delay time between the transmitting
+unsigned long mtime = 900000; // delay time between the measurements
+// only for tests
+//unsigned long stime = 20000;
+//unsigned long mtime = 10000;
 
-boolean isopen; // Boolean Feld fuer den Status vom Luefter.
+boolean isopen; // Field to check if open or closed
 
 // Memory pool for JSON object tree.
-StaticJsonBuffer<100> jsonBuffer;
+StaticJsonBuffer<110> jsonBuffer;
 JsonObject& root = jsonBuffer.createObject();
 
 /*
@@ -144,34 +144,35 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define LOGO16_GLCD_WIDTH  16 
 */
 
+
 void servo_ctrl(char cmd[5]){
   if(cmd=="open"){
     if(!isopen){
       // servo go to 90 degrees (open)
-      servo1.write(130);
+      servo1.write(pos_open);
       isopen=true;
       Serial.println(F("Servo Control write 130"));
-      delay(1000);
+      delay(500);
     } else {
       // do nothing
     }
   } else {
     if(isopen){
       // servo go to 0 degrees (close)
-      servo1.write(15);
+      servo1.write(pos_close);
       isopen=false;
       Serial.println(F("Servo Control write 15"));
-      delay(1000);
+      delay(500);
     } else {
       // do nothing
     }
   }
   // close by setup
   if(cmd=="start"){
-    servo1.write(15);
+    servo1.write(pos_close);
     isopen=false;
     Serial.println(F("Servo Control write 15"));
-    delay(1000);
+    delay(500);
   }
 }
 
@@ -273,7 +274,7 @@ void setup() {
 
   // We need to attach the servo to the used pin number 
   servo1.attach(servo_pin);
-  // close servo
+  // send to close
   servo_ctrl("start");
   
   dht.setup(dhtPin);
