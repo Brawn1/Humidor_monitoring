@@ -23,10 +23,9 @@
  * A5  = I2C OLED Display (SCL)
  * ---
  * D5  = (PWM) Servo Motor
- * D7  = 5V Lüfter (Optional)
  * ---
+ * D7  = LED (Power)
  * D8  = LED (Activity)
- * D12 = LED (Power)
  * ---
  * 
  * OLED Display SSD1306:
@@ -83,9 +82,8 @@
 // Sender ID for Database
 unsigned long int ID = 234576987654321;
 
-//int fan_pin=7;
-//int led_act=8;
-//int led_pwr=12;
+int led_pwr=7;
+int led_act=8;
 
 // ESP8266 WIFI
 #include<SoftwareSerial.h>
@@ -129,7 +127,7 @@ JsonObject& root = jsonBuffer.createObject();
 // OLED Display
 #include <SPI.h>
 #include <Wire.h>
-//#include <Adafruit_GFX.h>
+#include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
 #define OLED_RESET 4
@@ -144,6 +142,14 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define LOGO16_GLCD_WIDTH  16 
 */
 
+void act(int state){
+  if(state==1){
+    digitalWrite(led_act, LOW);
+    digitalWrite(led_act, HIGH);
+  } else {
+    digitalWrite(led_act, LOW);
+  }
+}
 
 void servo_ctrl(char cmd[5]){
   if(cmd=="open"){
@@ -266,6 +272,12 @@ void wifi_init(){
 void setup() {
   Serial.begin(115200);
   wifi.begin(115200);
+  pinMode(led_pwr, OUTPUT);
+  pinMode(led_act, OUTPUT);
+
+  digitalWrite(led_pwr, HIGH);
+  digitalWrite(led_act, LOW);
+  
   //wifi_init();
   
   root["ID"] = ID;
@@ -288,6 +300,7 @@ void loop() {
   //falls die Befeuchtung aktiv ist pruefe alle 30 Sekunden die Werte
   if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 30000) {
+      act(1);
       byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
@@ -296,11 +309,13 @@ void loop() {
           Serial.println(F("Open Slot"));
           servo_ctrl("open");
         }
+        act(0);
       } else {
         if (isopen) {
           // switch fan1 off und schliesse den Schlitz
           Serial.println(F("Close Slot"));
           servo_ctrl("close");
+          act(0);
         }
       }
       task2 = millis();
@@ -311,20 +326,24 @@ void loop() {
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
     //Serial.println(F("check DHT22"));
     //TransmitData(get_temp(), get_hum());
+    act(1);
     root["temperature"] = get_temp();
     root["Humidity"] = get_hum();
     TransmitData();
     task1 = millis();
+    act(0);
   }
 
   // Sende Messdaten wenn die Befeuchtung aktiv ist alle 60 Sekunden
   if(isopen){
     if((unsigned long)(currmillis - task3) >= 60000){
       //TransmitData(get_temp(), get_hum());
+      act(1);
       root["temperature"]=get_temp();
       root["Humidity"]=get_hum();
       TransmitData();
       task3 = millis();
+      act(0);
     }
   }
 
@@ -333,16 +352,19 @@ void loop() {
     byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
+      act(1);
       if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
         Serial.println(F("Switch fan on"));
         servo_ctrl("open");
       }
+      act(0);
     } else {
       if (isopen) {
         // switch fan1 off und schliesse den Schlitz
         Serial.println(F("Switch fan off"));
         servo_ctrl("close");
+        act(0);
       }
     }
     task2 = millis();
