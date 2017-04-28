@@ -9,23 +9,23 @@
  * Als zusatz wird noch ein OLED Display am Humidor eingebaut um den derzeitigen Status anzuzeigen.
  * Genauso verwenden wir die Bibliothek ArduinoJson und bauen für die Übertragung ein Json String.
  * 
- * Arduino Nano V3 Pinbelegung:
+ * Arduino Mega 2560 R3 Pinbelegung:
  * ----------------------------
  * VCC = 5V
  * GND = GND
- * D2  = TX Pin ESP8266 WIFI
- * D3  = RX Pin ESP8266 WIFI
+ * D22  = TX Pin ESP8266 WIFI
+ * D23  = RX Pin ESP8266 WIFI
  * 3.3V= VCC ESP8266 WIFI
  * ---
- * D4  = DHT11 Sensor
+ * D24  = DHT11 Sensor
  * ---
  * A4  = I2C OLED Display (SDA)
  * A5  = I2C OLED Display (SCL)
  * ---
  * D5  = (PWM) Servo Motor
  * ---
- * D7  = LED (Power)
- * D8  = LED (Activity)
+ * D26  = LED (Power)
+ * D27  = LED (Activity)
  * ---
  * 
  * OLED Display SSD1306:
@@ -82,12 +82,12 @@
 // Sender ID for Database
 unsigned long int ID = 234576987654321;
 
-int led_pwr=7;
-int led_act=8;
+int led_pwr=26;
+int led_act=27;
 
 // ESP8266 WIFI
 #include<SoftwareSerial.h>
-SoftwareSerial wifi(2,3); //RX, TX
+SoftwareSerial wifi(14,15); //RX, TX
 boolean NO_IP=false;
 boolean WIFI_CONN=false;
 String IP="";
@@ -100,22 +100,22 @@ String URI="/"; // URL Path after DNS or IP
 
 //Servo Lib
 #include <Servo.h> 
-int servo_pin = 5; // Declare the Servo pin
+int servo_pin = 2; // Declare the Servo pin
 Servo servo1; // Create a servo object
 int pos_open = 130; // open position in degrees
 int pos_close = 15; // close position in degrees
 
 //DHT11 Lib
-int dhtPin = 4;
+int dhtPin = 24;
 #include "DHT.h"
 DHT dht;
 
 // delay between the measurements in Milliseconds
-unsigned long stime = 1800000; // delay time between the transmitting
-unsigned long mtime = 900000; // delay time between the measurements
+//unsigned long stime = 1800000; // delay time between the transmitting
+//unsigned long mtime = 900000; // delay time between the measurements
 // only for tests
-//unsigned long stime = 20000;
-//unsigned long mtime = 10000;
+unsigned long stime = 20000;
+unsigned long mtime = 10000;
 
 boolean isopen; // Field to check if open or closed
 
@@ -146,8 +146,10 @@ void act(int state){
   if(state==1){
     digitalWrite(led_act, LOW);
     digitalWrite(led_act, HIGH);
+    Serial.println("act");
   } else {
     digitalWrite(led_act, LOW);
+    Serial.println("act low");
   }
 }
 
@@ -275,7 +277,7 @@ void setup() {
   pinMode(led_pwr, OUTPUT);
   pinMode(led_act, OUTPUT);
 
-  digitalWrite(led_pwr, HIGH);
+  digitalWrite(led_pwr, LOW);
   digitalWrite(led_act, LOW);
   
   //wifi_init();
@@ -300,7 +302,7 @@ void loop() {
   //falls die Befeuchtung aktiv ist pruefe alle 30 Sekunden die Werte
   if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 30000) {
-      act(1);
+      //act(1);
       byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
@@ -326,12 +328,13 @@ void loop() {
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
     //Serial.println(F("check DHT22"));
     //TransmitData(get_temp(), get_hum());
-    act(1);
+    //act(1);
     root["temperature"] = get_temp();
     root["Humidity"] = get_hum();
     TransmitData();
     task1 = millis();
     act(0);
+    Serial.println("send data");
   }
 
   // Sende Messdaten wenn die Befeuchtung aktiv ist alle 60 Sekunden
@@ -352,7 +355,7 @@ void loop() {
     byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
-      act(1);
+      //act(1);
       if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
         Serial.println(F("Switch fan on"));
@@ -373,11 +376,13 @@ void loop() {
 
 // Read temperature as Celsius (the default)
 float get_temp() {
+  Serial.println("Read Temp");
   return dht.getTemperature();
 }
 
 // Read humidity
 float get_hum() {
+  Serial.println("Read Hum");
   return dht.getHumidity();
 }
 
@@ -385,12 +390,11 @@ float get_hum() {
 void chk_wifi_conn(){
   if(!WIFI_CONN){
     // get ip address
+    Serial.println(F("get ip"));
     get_ip();
     delay(2000);
     // check ip and NO_IP to True
     check_ip(5000);
-  } else {
-    // do nothing
   }
 
   if(!NO_IP && !WIFI_CONN){
@@ -406,6 +410,7 @@ void TransmitData(){
   /*
   * Send JSON Data
   */
+  Serial.println(F("Start transmit data"));
   if(isopen){
     root["open"]="True";
   } else {
@@ -413,13 +418,13 @@ void TransmitData(){
   }
 
   if(!WIFI_CONN){
+    Serial.println(F("check wifi con"));
     chk_wifi_conn();
-  } else {
-    // do nothing
   }
 
   String jsonstring;
   root.printTo(jsonstring);
+  Serial.println(F("connect to server"));
 
   wifi.print("AT+CIPSTART=\"TCP\",");
   wifi.print("\"10.20.50.74\"");
