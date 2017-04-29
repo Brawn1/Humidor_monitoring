@@ -86,8 +86,8 @@ int led_pwr=26;
 int led_act=27;
 
 // ESP8266 WIFI
-#include<SoftwareSerial.h>
-SoftwareSerial wifi(14,15); //RX, TX
+//#include<SoftwareSerial.h>
+//SoftwareSerial wifi(14,15); //RX, TX
 boolean NO_IP=false;
 boolean WIFI_CONN=false;
 String IP="";
@@ -111,11 +111,11 @@ int dhtPin = 24;
 DHT dht;
 
 // delay between the measurements in Milliseconds
-//unsigned long stime = 1800000; // delay time between the transmitting
-//unsigned long mtime = 900000; // delay time between the measurements
+unsigned long stime = 1800000; // delay time between the transmitting
+unsigned long mtime = 900000; // delay time between the measurements
 // only for tests
-unsigned long stime = 20000;
-unsigned long mtime = 10000;
+//unsigned long stime = 20000;
+//unsigned long mtime = 10000;
 
 boolean isopen; // Field to check if open or closed
 
@@ -146,10 +146,8 @@ void act(int state){
   if(state==1){
     digitalWrite(led_act, LOW);
     digitalWrite(led_act, HIGH);
-    Serial.println("act");
   } else {
     digitalWrite(led_act, LOW);
-    Serial.println("act low");
   }
 }
 
@@ -189,9 +187,9 @@ void connect_wifi(String cmd, int t){
   while(1)
   {
     Serial.println(cmd);
-    wifi.println(cmd);
-    while(wifi.available()) {
-      if(wifi.find("OK"))
+    Serial1.println(cmd);
+    while(Serial1.available()) {
+      if(Serial1.find("OK"))
       i=8;
     }
     delay(t);
@@ -208,8 +206,8 @@ void connect_wifi(String cmd, int t){
 void check_ip(int t1){
   int t2=millis();
   while(t2+t1>millis()){
-      while(wifi.available()>0){
-        if(wifi.find("WIFI GOT IP")){
+      while(Serial1.available()>0){
+        if(Serial1.find("WIFI GOT IP")){
           NO_IP=true;
           WIFI_CONN=true;
         }
@@ -221,13 +219,13 @@ void get_ip(){
   IP="";
   char ch=0;
   while(1){
-    wifi.println("AT+CIFSR");
-    while(wifi.available()>0){
-      if(wifi.find("STAIP,")){
+    Serial1.println("AT+CIFSR");
+    while(Serial1.available()>0){
+      if(Serial1.find("STAIP,")){
         delay(1000);
         Serial.println(F("IP Address;"));
-        while(wifi.available()>0){
-          ch=wifi.read();
+        while(Serial1.available()>0){
+          ch=Serial1.read();
           if(ch=='+')
           break;
           IP+=ch;
@@ -273,15 +271,13 @@ void wifi_init(){
 
 void setup() {
   Serial.begin(115200);
-  wifi.begin(115200);
+  Serial1.begin(115200);
   pinMode(led_pwr, OUTPUT);
   pinMode(led_act, OUTPUT);
 
   digitalWrite(led_pwr, LOW);
   digitalWrite(led_act, LOW);
-  
-  //wifi_init();
-  
+
   root["ID"] = ID;
   root["sendtime"] = stime;
   root["measuretime"] = mtime;
@@ -302,7 +298,7 @@ void loop() {
   //falls die Befeuchtung aktiv ist pruefe alle 30 Sekunden die Werte
   if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 30000) {
-      //act(1);
+      act(1);
       byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
@@ -328,7 +324,7 @@ void loop() {
   if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
     //Serial.println(F("check DHT22"));
     //TransmitData(get_temp(), get_hum());
-    //act(1);
+    act(1);
     root["temperature"] = get_temp();
     root["Humidity"] = get_hum();
     TransmitData();
@@ -355,7 +351,7 @@ void loop() {
     byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
-      //act(1);
+      act(1);
       if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
         Serial.println(F("Switch fan on"));
@@ -376,13 +372,11 @@ void loop() {
 
 // Read temperature as Celsius (the default)
 float get_temp() {
-  Serial.println("Read Temp");
   return dht.getTemperature();
 }
 
 // Read humidity
 float get_hum() {
-  Serial.println("Read Hum");
   return dht.getHumidity();
 }
 
@@ -426,11 +420,11 @@ void TransmitData(){
   root.printTo(jsonstring);
   Serial.println(F("connect to server"));
 
-  wifi.print("AT+CIPSTART=\"TCP\",");
-  wifi.print("\"10.20.50.74\"");
-  wifi.print(",");
-  wifi.println(9600);
-  if(wifi.find("OK")){
+  Serial1.print("AT+CIPSTART=\"TCP\",");
+  Serial1.print("\"10.20.50.74\"");
+  Serial1.print(",");
+  Serial1.println(9600);
+  if(Serial1.find("OK")){
     Serial.println(F("TCP connection ready"));
   }
   delay(1000);
@@ -445,24 +439,24 @@ void TransmitData(){
 
   Serial.print(F("AT+CIPSEND="));
   Serial.println(postRequest.length() );
-  wifi.print(F("AT+CIPSEND="));
-  wifi.println(postRequest.length() );
+  Serial1.print(F("AT+CIPSEND="));
+  Serial1.println(postRequest.length() );
 
   delay(1000);
 
-  if(wifi.find(">")){
+  if(Serial1.find(">")){
     Serial.println(F("Sending..."));
-    wifi.print(postRequest);
-    if(wifi.find("SEND OK")){
+    Serial1.print(postRequest);
+    if(Serial1.find("SEND OK")){
       Serial.println(F("Packet sent"));
-      while(wifi.available()){
-        String tmpResponse = wifi.readString();
+      while(Serial1.available()){
+        String tmpResponse = Serial1.readString();
         Serial.println(tmpResponse);
       }
-      wifi.println(F("AT+CIPCLOSE"));
+      Serial1.println(F("AT+CIPCLOSE"));
     }
   } else {
-    wifi.println(F("AT+CIPCLOSE"));
+    Serial1.println(F("AT+CIPCLOSE"));
   }
 }
 
