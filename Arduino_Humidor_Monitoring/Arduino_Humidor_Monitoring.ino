@@ -29,6 +29,7 @@
  * ---
  * D26 = LED (Power)
  * D27 = LED (Activity)
+ * D28 = Power Source Servo Motor (HIGH = OFF)
  * ---
  * 
  * OLED Display SSD1306:
@@ -97,7 +98,7 @@ boolean WIFI_CONN=false;
 String IP="";
 int i,k,x=0;
 
-String SERVER="10.20.50.74"; // DNS or IP to send measurement data to Server
+String SERVER="192.168.2.237"; // DNS or IP to send measurement data to Server
 String TOKEN="5245ADFAFD5784567ADFA324"; // AUTH Token
 //unsigned int PORT=9600; // Port for Server
 String URI="/"; // URL Path after DNS or IP
@@ -105,9 +106,10 @@ String URI="/"; // URL Path after DNS or IP
 //Servo Lib
 #include <Servo.h> 
 int servo_pin = 2; // Declare the Servo pin
+int servo_power = 28; // servo power
 Servo servo1; // Create a servo object
-int pos_open = 100; // open position in degrees
-int pos_close = 50; // close position in degrees
+int pos_open = 138; // open position in degrees
+int pos_close = 85; // close position in degrees
 
 //DHT11 Lib
 int dhtPin = 24;
@@ -231,32 +233,41 @@ void act(int state){
 void servo_ctrl(char cmd[5]){
   if(cmd=="open"){
     if(!isopen){
+      digitalWrite(servo_power, LOW);
       // servo go to 90 degrees (open)
-      servo1.write(pos_open);
+      for (int i=pos_close; i <= pos_open; i++){
+        servo1.write(i);
+        delay(25);
+      }
       isopen=true;
       Serial.println(F("Servo Control write 130"));
-      delay(500);
     } else {
       // do nothing
     }
   } else {
     if(isopen){
+      digitalWrite(servo_power, LOW);
       // servo go to 0 degrees (close)
       servo1.write(pos_close);
+      for (int i=pos_open; i >= pos_close; i--){
+        servo1.write(i);
+        delay(10);
+      }
       isopen=false;
       Serial.println(F("Servo Control write 15"));
-      delay(500);
     } else {
       // do nothing
     }
   }
   // close by setup
   if(cmd=="start"){
-    servo1.write(pos_close);
+    digitalWrite(servo_power, LOW);
+    servo1.write(pos_close);    
     isopen=false;
     Serial.println(F("Servo Control write 15"));
     delay(500);
   }
+  digitalWrite(servo_power, HIGH);
 }
 
 void connect_wifi(String cmd, int t){
@@ -351,9 +362,11 @@ void setup() {
   Serial1.begin(115200);
   pinMode(led_pwr, OUTPUT);
   pinMode(led_act, OUTPUT);
+  pinMode(servo_power, OUTPUT);
 
   digitalWrite(led_pwr, LOW);
   digitalWrite(led_act, LOW);
+  digitalWrite(servo_power, HIGH);
 
   // build Json string
   root["ID"] = ID;
@@ -377,19 +390,18 @@ void loop() {
   if (isopen) {
     if ((unsigned long)(currmillis - task2) >= 30000) {
       act(1);
-      byte i;
       //Serial.println(F("check if hum"));
       if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
         if (!isopen) {
           //oeffne die Belueftung und starte den Luefter
-          Serial.println(F("Open Slot"));
+          Serial.println(F("Servo Open"));
           servo_ctrl("open");
         }
         act(0);
       } else {
         if (isopen) {
           // switch fan1 off und schliesse den Schlitz
-          Serial.println(F("Close Slot"));
+          Serial.println(F("Servo Close"));
           servo_ctrl("close");
           act(0);
         }
@@ -399,9 +411,7 @@ void loop() {
   }
 
   // Wenn die Zeit (worktime) kleiner als die Vergangene Zeit ist, Sende die Messdaten.
-  if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 1000)) {
-    //Serial.println(F("check DHT22"));
-    //TransmitData(get_temp(), get_hum());
+  if ((unsigned long)(currmillis - task1) >= stime || (currmillis == 10000)) {
     act(1);
     root["temperature"] = get_temp();
     root["Humidity"] = get_hum();
@@ -426,20 +436,19 @@ void loop() {
 
   // checke die Luftfeuchtigkeit und wenn zu niedrig schalte die Befeuchtung ein.
   if ((unsigned long)(currmillis - task2) >= mtime) {
-    byte i;
     //Serial.println(F("check if hum"));
     if ((float)(get_hum() <= 65.0 || get_hum() <= 70.0)) {
       act(1);
       if (!isopen) {
         //oeffne die Belueftung und starte den Luefter
-        Serial.println(F("Switch fan on"));
+        Serial.println(F("Servo Open"));
         servo_ctrl("open");
       }
       act(0);
     } else {
       if (isopen) {
         // switch fan1 off und schliesse den Schlitz
-        Serial.println(F("Switch fan off"));
+        Serial.println(F("Servo Close"));
         servo_ctrl("close");
         act(0);
       }
@@ -490,7 +499,7 @@ void TransmitData(){
   }
 
   if(!WIFI_CONN){
-    Serial.println(F("check wifi con"));
+    Serial.println(F("check wifi conn"));
     chk_wifi_conn();
   }
 
@@ -499,13 +508,13 @@ void TransmitData(){
   Serial.println(F("connect to server"));
 
   Serial1.print("AT+CIPSTART=\"TCP\",");
-  Serial1.print("\"10.20.50.74\"");
+  Serial1.print("\"192.168.2.237\"");
   Serial1.print(",");
   Serial1.println(9600);
   if(Serial1.find("OK")){
     Serial.println(F("TCP connection ready"));
   }
-  delay(1000);
+  delay(500);
 
   String postRequest = "POST "+URI+" HTTP/1.0\r\n"+
   "HOST:"+SERVER+"\r\n"+
